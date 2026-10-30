@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>8-Location Synchronous FIFO — Study Demo</title>
+<style>
+:root{--navy:#102a43;--teal:#087e8b;--gold:#d6a928;--bg:#f3f7fa;--ink:#172b4d;--muted:#627d98;--green:#16794b;--blue:#2563eb;--red:#b42318}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+header{background:linear-gradient(120deg,var(--navy),#14576b);color:white;padding:28px 18px;border-bottom:4px solid var(--gold)}
+header .wrap,main,.footer{max-width:1050px;margin:auto}h1{margin:0 0 6px;font-size:clamp(1.5rem,3vw,2.2rem)}header p{margin:0;color:#e2edf3}
+main{padding:20px 14px 32px}.panel{background:white;border:1px solid #d9e2ec;border-radius:15px;padding:18px;margin:0 0 16px;box-shadow:0 3px 12px #102a430b}
+.topstats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.stat{background:#f0f5f8;border-radius:11px;padding:12px}.stat small{display:block;color:var(--muted)}.stat strong{font-size:1.5rem}
+h2{font-size:1.15rem;margin:0 0 12px;color:var(--navy)}.memory{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.slot{border:2px solid #b8c7d1;border-radius:12px;padding:12px;text-align:center;min-height:100px;display:flex;flex-direction:column;justify-content:center;gap:5px}.slot .addr{font-size:.8rem;color:var(--muted)}.slot .byte{font-size:1.5rem;font-weight:750}.slot.writeptr{border-color:var(--green);background:#edf9f1}.slot.readptr{border-color:var(--blue);background:#eff6ff}.slot.both{border-color:#7c3aed;background:#f5f0ff}.tag{font-size:.72rem;font-weight:700}.writeptr .tag{color:var(--green)}.readptr .tag{color:var(--blue)}.both .tag{color:#7c3aed}
+.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.field{display:flex;flex-direction:column;gap:5px;min-width:150px;flex:1}.field label{font-size:.86rem;color:var(--muted)}input{font:inherit;border:1px solid #bcccdc;border-radius:9px;padding:10px 12px;width:100%}button{font:inherit;font-weight:650;border:0;border-radius:9px;padding:11px 15px;cursor:pointer;background:var(--teal);color:white}button:disabled{opacity:.42;cursor:not-allowed}.secondary{background:#e8eef3;color:var(--navy)}.writebtn{background:var(--green)}.readbtn{background:var(--blue)}.message{padding:11px 13px;background:#f0f5f8;border-radius:9px;margin-top:12px;min-height:44px}.progress{height:8px;border-radius:99px;background:#e4ebf0;overflow:hidden;margin-top:8px}.progress span{display:block;height:100%;background:var(--teal);width:0%;transition:width .2s}
+.log{padding:0;list-style:none;margin:0}.log li{padding:8px 0;border-bottom:1px solid #e8eef3;font-size:.92rem}.log li:last-child{border-bottom:0}.notes{color:var(--muted);font-size:.9rem}.key{display:inline-block;border-radius:5px;padding:2px 6px;font-size:.75rem;font-weight:700}.key.g{background:#edf9f1;color:var(--green)}.key.b{background:#eff6ff;color:var(--blue)}.key.p{background:#f5f0ff;color:#7c3aed}
+footer{text-align:center;color:var(--muted);padding:18px;font-size:.84rem}.callout{border-left:4px solid var(--gold);padding:10px 13px;background:#fffbeb;border-radius:0 8px 8px 0}
+@media(max-width:650px){.topstats{grid-template-columns:repeat(2,minmax(0,1fr))}.memory{grid-template-columns:repeat(2,minmax(0,1fr))}.controls button{flex:1}.panel{padding:14px}}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>8-Location Synchronous FIFO</h1><p>Interactive study demo · 8 entries × 8 bits · conceptual rising-edge operations</p></div></header>
+<main>
+<section class="panel">
+  <div class="topstats">
+    <div class="stat"><small>Occupancy / count</small><strong id="count">0 / 8</strong><div class="progress"><span id="bar"></span></div></div>
+    <div class="stat"><small>Write pointer (next slot)</small><strong id="wp">0</strong></div>
+    <div class="stat"><small>Read pointer (next slot)</small><strong id="rp">0</strong></div>
+    <div class="stat"><small>Last data_out</small><strong id="dout">—</strong></div>
+  </div>
+</section>
+<section class="panel">
+  <h2>Memory view</h2>
+  <p class="notes">Green = next write location · Blue = next read location · Purple = both pointers. Reading does not erase stored bits.</p>
+  <div class="memory" id="memory"></div>
+</section>
+<section class="panel">
+  <h2>Perform one operation</h2>
+  <div class="controls">
+    <div class="field"><label for="din">Input byte (hexadecimal, 00–FF)</label><input id="din" value="11" maxlength="2" autocomplete="off" spellcheck="false"></div>
+    <button id="write" class="writebtn">↓ Write</button>
+    <button id="read" class="readbtn">↑ Read</button>
+    <button id="reset" class="secondary">Reset demo</button>
+  </div>
+  <div class="message" id="message" role="status">Initialized: FIFO is empty. Enter a hex byte and write it.</div>
+  <div class="topstats" style="margin-top:12px">
+    <div class="stat"><small>Full</small><strong id="full">0</strong></div>
+    <div class="stat"><small>Empty</small><strong id="empty">1</strong></div>
+    <div class="stat"><small>Accepted operations</small><strong id="ops">0</strong></div>
+    <div class="stat"><small>Memory clearing</small><strong>No</strong></div>
+  </div>
+</section>
+<section class="panel">
+  <h2>Try a guided sequence</h2>
+  <p class="notes">Run a few operations automatically to see FIFO ordering and pointer wraparound. This sequence writes 11, 22, 33, 44, then reads four bytes.</p>
+  <div class="controls"><button id="demo">Run guided sequence</button><button id="clearlog" class="secondary">Clear log</button></div>
+</section>
+<section class="panel">
+  <h2>Operation log</h2>
+  <ul class="log" id="log"><li>FIFO initialized; count=0, empty=1, full=0.</li></ul>
+</section>
+<section class="panel">
+  <h2>Key study points</h2>
+  <div class="callout"><strong>Important:</strong> a FIFO read makes an entry logically invalid by advancing the read pointer and reducing the occupancy count. It does not have to clear the physical memory bits.</div>
+  <ul>
+    <li><strong>Write accepted:</strong> when write is requested and the FIFO is not full, store the input at the write pointer and advance it.</li>
+    <li><strong>Read accepted:</strong> when read is requested and the FIFO is not empty, copy the oldest byte to <code>data_out</code> and advance the read pointer.</li>
+    <li><strong>Empty:</strong> <code>count == 0</code>. Old memory bits may still be visible.</li>
+    <li><strong>Full:</strong> <code>count == 8</code>. A write-only request is rejected.</li>
+    <li><strong>Wraparound:</strong> after address 7, a pointer returns to address 0.</li>
+    <li>This is a behavioral teaching model, not a cycle-accurate simulator of a specific HDL implementation.</li>
+  </ul>
+</section>
+</main>
+<footer>Study resource · Verilog-2001 FIFO concepts · Developer: Ghulam Yaseen Nangraj</footer>
+<script>
+(() => {
+ const N=8; let mem=Array(N).fill(null), wp=0, rp=0, count=0, dout=null, ops=0;
+ const $=id=>document.getElementById(id);
+ const hex=v=>v===null?'—':v.toString(16).toUpperCase().padStart(2,'0');
+ function log(s){const li=document.createElement('li');li.textContent=s;$('log').prepend(li);while($('log').children.length>10)$('log').lastElementChild.remove();}
+ function render(){
+  $('count').textContent=`${count} / ${N}`;$('wp').textContent=wp;$('rp').textContent=rp;$('dout').textContent=hex(dout);
+  $('bar').style.width=`${count/N*100}%`;$('full').textContent=count===N?'1':'0';$('empty').textContent=count===0?'1':'0';$('ops').textContent=ops;
+  $('write').disabled=count===N;$('read').disabled=count===0;
+  $('memory').innerHTML='';
+  mem.forEach((v,i)=>{
+   const div=document.createElement('div');div.className='slot';
+   const isW=i===wp&&count<N,isR=i===rp&&count>0;
+   if(isW&&isR)div.classList.add('both');else if(isW)div.classList.add('writeptr');else if(isR)div.classList.add('readptr');
+   const tag=isW&&isR?'Next write + read':isW?'Next write':isR?'Next read':v===null?'Unwritten':'Stored bits';
+   div.innerHTML=`<span class="addr">Memory[${i}]</span><span class="byte">${hex(v)}</span><span class="tag">${tag}</span>`;
+   $('memory').appendChild(div);
+  });
+ }
+ function write(){
+  const raw=$('din').value.trim();
+  if(!/^[0-9a-fA-F]{1,2}$/.test(raw)){ $('message').textContent='Invalid input. Enter one or two hexadecimal digits (00–FF).';return false; }
+  if(count===N){$('message').textContent='WRITE REJECTED: FIFO is full.';log('WRITE REJECTED: FIFO is full.');return false;}
+  const v=parseInt(raw,16);mem[wp]=v;const at=wp;wp=(wp+1)%N;count++;ops++;
+  $('message').textContent=`WRITE accepted: 0x${hex(v)} stored at memory[${at}]. count=${count}.`;log(`WRITE: 0x${hex(v)} → memory[${at}]; count=${count}.`);render();return true;
+ }
+ function read(){
+  if(count===0){$('message').textContent='READ REJECTED: FIFO is empty.';log('READ REJECTED: FIFO is empty.');return false;}
+  const at=rp,v=mem[rp];dout=v;rp=(rp+1)%N;count--;ops++;
+  $('message').textContent=`READ accepted: 0x${hex(v)} returned from memory[${at}]. Memory bits remain unchanged.`;log(`READ: 0x${hex(v)} ← memory[${at}]; stored bits retained; count=${count}.`);render();return true;
+ }
+ function reset(){
+  mem=Array(N).fill(null);wp=0;rp=0;count=0;dout=null;ops=0;
+  $('message').textContent='Reset: pointers, occupancy, and output reset. Demo memory is shown as unwritten.';$('log').innerHTML='';log('FIFO initialized; count=0, empty=1, full=0.');render();
+ }
+ $('write').addEventListener('click',write);$('read').addEventListener('click',read);$('reset').addEventListener('click',reset);
+ $('clearlog').addEventListener('click',()=>$('log').innerHTML='');
+ $('demo').addEventListener('click',()=>{
+  reset();
+  const seq=[['w','11'],['w','22'],['w','33'],['w','44'],['r'],['r'],['r'],['r']];
+  seq.forEach(([op,val])=>{if(op==='w'){$('din').value=val;write();}else read();});
+  $('message').textContent='Guided sequence complete: read outputs were 11, 22, 33, 44. Old bytes remain visible in memory.';
+ });
+ render();
+})();
+</script>
+</body>
+</html>
